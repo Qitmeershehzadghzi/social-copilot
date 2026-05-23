@@ -62,7 +62,8 @@ export default function SignUpPage() {
               colorInputText: '#ffffff',
             },
           }}
-          routing="hash"
+          routing="path"
+          path="/sign-up"
           signInUrl="/sign-in"
           forceRedirectUrl="/dashboard"
           fallbackRedirectUrl="/dashboard"

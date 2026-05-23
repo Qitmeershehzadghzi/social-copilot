@@ -1,6 +1,20 @@
-export async function fetchYouTubeComments(accessToken: string, maxResults: number = 20) {
-  // We fetch commentThreads from the authenticated user's channel
-  const res = await fetch(`https://www.googleapis.com/youtube/v3/commentThreads?part=snippet,replies&allThreadsRelatedToChannelId=mine&maxResults=${maxResults}`, {
+export async function fetchYouTubeChannel(accessToken: string) {
+  const res = await fetch('https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true', {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!res.ok) {
+    throw new Error(`Failed to fetch YouTube channel: ${await res.text()}`);
+  }
+
+  const data = await res.json();
+  return data.items?.[0] || null;
+}
+
+export async function fetchYouTubeComments(accessToken: string, channelId: string, maxResults: number = 20) {
+  const res = await fetch(`https://www.googleapis.com/youtube/v3/commentThreads?part=snippet,replies&allThreadsRelatedToChannelId=${channelId}&maxResults=${maxResults}`, {
     headers: {
       Authorization: `Bearer ${accessToken}`,
     },

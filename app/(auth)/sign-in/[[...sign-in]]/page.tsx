@@ -60,7 +60,8 @@ export default function SignInPage() {
               colorInputText: '#ffffff',
             },
           }}
-          routing="hash"
+          routing="path"
+          path="/sign-in"
           signUpUrl="/sign-up"
           forceRedirectUrl="/dashboard"
           fallbackRedirectUrl="/dashboard"

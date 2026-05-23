@@ -25,14 +25,18 @@ export default function Navbar() {
     { label: "Pricing", href: "#pricing" },
   ];
 
-  const handleScroll = (e: React.MouseEvent<HTMLAnchorElement, MouseEvent>) => {
-    e.preventDefault();
-    const href = e.currentTarget.href;
-    const targetId = href.replace(/.*\#/, "");
+  const scrollToSection = (targetId: string) => {
     const elem = document.getElementById(targetId);
     elem?.scrollIntoView({
       behavior: "smooth",
     });
+  };
+
+  const handleScroll = (e: React.MouseEvent<HTMLAnchorElement, MouseEvent>) => {
+    e.preventDefault();
+    const href = e.currentTarget.href;
+    const targetId = href.replace(/.*\#/, "");
+    scrollToSection(targetId);
   };
 
   return (
@@ -118,7 +122,16 @@ export default function Navbar() {
                 </div>
                 <nav className="flex-1 space-y-6">
                   {navLinks.map((link) => (
-                    <SheetClose key={link.label} render={<a href={link.href} onClick={handleScroll} className="block text-gray-300 hover:text-white transition-colors text-lg font-medium" />}>
+                    <SheetClose
+                      key={link.label}
+                      render={
+                        <button
+                          type="button"
+                          onClick={() => scrollToSection(link.href.replace("#", ""))}
+                          className="block w-full text-left text-gray-300 hover:text-white transition-colors text-lg font-medium"
+                        />
+                      }
+                    >
                       {link.label}
                     </SheetClose>
                   ))}

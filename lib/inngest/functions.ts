@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 
 import { db } from "@/db";
 import { connectedAccounts, postTargets, posts } from "@/db/schema";
+import { notifyUser } from "@/lib/notifications";
 import { publishPost } from "@/lib/publishers";
 import { refreshAccessToken } from "@/lib/token-refresh";
 
@@ -140,6 +141,15 @@ export const publishPostTarget = inngest.createFunction(
         }
       });
 
+      await step.run("notify-post-published", async () => {
+        await notifyUser(
+          postRecord.userId,
+          "postPublished",
+          `Post published to ${data.platform}`,
+          `Your post was published successfully to ${data.platform}.`
+        );
+      });
+
       return { published: true };
     } catch (error) {
       console.error("[PUBLISH_POST_TARGET] Publishing failed:", error);
@@ -154,6 +164,15 @@ export const publishPostTarget = inngest.createFunction(
             updatedAt: new Date(),
           })
           .where(eq(postTargets.id, data.postTargetId));
+      });
+
+      await step.run("notify-post-failed", async () => {
+        await notifyUser(
+          postRecord.userId,
+          "postFailed",
+          `Post failed on ${data.platform}`,
+          getErrorMessage(error)
+        );
       });
 
       throw error;

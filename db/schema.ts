@@ -89,6 +89,7 @@ export const autoReplyRules = pgTable('auto_reply_rules', {
   triggerType: triggerTypeEnum('trigger_type').notNull(),
   keywords: text('keywords').array(), // array of keywords for keyword triggers
   promptTemplate: text('prompt_template').notNull(),
+  connectedAccountIds: uuid('connected_account_ids').array().default([]).notNull(),
   platforms: platformEnum('platform').array().notNull(),
   isActive: boolean('is_active').default(true).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -99,6 +100,8 @@ export const autoReplyRules = pgTable('auto_reply_rules', {
 export const commentEvents = pgTable('comment_events', {
   id: uuid('id').defaultRandom().primaryKey(),
   ruleId: uuid('rule_id').references(() => autoReplyRules.id, { onDelete: 'cascade' }),
+  connectedAccountId: uuid('connected_account_id').references(() => connectedAccounts.id, { onDelete: 'set null' }),
+  externalCommentId: varchar('external_comment_id', { length: 255 }),
   platform: platformEnum('platform').notNull(),
   commentText: text('comment_text').notNull(),
   commentAuthor: varchar('comment_author', { length: 255 }).notNull(),
@@ -177,6 +180,10 @@ export const commentEventsRelations = relations(commentEvents, ({ one }) => ({
   rule: one(autoReplyRules, {
     fields: [commentEvents.ruleId],
     references: [autoReplyRules.id],
+  }),
+  connectedAccount: one(connectedAccounts, {
+    fields: [commentEvents.connectedAccountId],
+    references: [connectedAccounts.id],
   }),
 }))
 

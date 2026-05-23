@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   allowedDevOrigins: [
+    "xkocr-125-209-102-118.run.pinggy-free.link",
     "ilwiq-125-209-102-118.run.pinggy-free.link",
     "*.run.pinggy-free.link",
   ],
