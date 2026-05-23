@@ -30,6 +30,7 @@ export type PlatformConfig = {
   callbackPath: string
   developerUrl: string
   setupNote: string
+  altEnvVars?: string[][]
 }
 
 export const PLATFORMS: PlatformConfig[] = [
@@ -42,6 +43,7 @@ export const PLATFORMS: PlatformConfig[] = [
     dotClass: "bg-[#1DA1F2]",
     characterLimit: 280,
     envVars: ["TWITTER_CLIENT_ID", "TWITTER_CLIENT_SECRET"],
+    altEnvVars: [["TWITTER_API_KEY", "TWITTER_API_SECRET"]],
     callbackPath: "/api/accounts/oauth/twitter/callback",
     developerUrl: "https://developer.x.com/en/portal/dashboard",
     setupNote: "Enable OAuth 2.0 and add tweet.read, tweet.write, users.read, offline.access scopes.",

@@ -127,7 +127,7 @@ For local development, keep `NEXT_PUBLIC_APP_URL=http://localhost:3000` and add 
 
 | Platform | Env vars | Callback URL |
 | --- | --- | --- |
-| Twitter/X | `TWITTER_CLIENT_ID`, `TWITTER_CLIENT_SECRET` | `http://localhost:3000/api/accounts/oauth/twitter/callback` |
+| Twitter/X | `TWITTER_CLIENT_ID`, `TWITTER_CLIENT_SECRET` (or legacy `TWITTER_API_KEY`, `TWITTER_API_SECRET`) | `http://localhost:3000/api/accounts/oauth/twitter/callback` |
 | LinkedIn | `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET` | `http://localhost:3000/api/accounts/oauth/linkedin/callback` |
 | Facebook | `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET` | `http://localhost:3000/api/accounts/oauth/facebook/callback` |
 | Instagram | `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET` | `http://localhost:3000/api/accounts/oauth/instagram/callback` |

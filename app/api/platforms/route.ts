@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server"
 
-import { PLATFORMS } from "@/lib/platforms"
+import { PLATFORMS, type PlatformConfig } from "@/lib/platforms"
+
+function isPlatformConfigured(platform: PlatformConfig) {
+  const defaultConfigured = platform.envVars.every((envVar) => Boolean(process.env[envVar]))
+  if (defaultConfigured) return true
+  if (!platform.altEnvVars) return false
+  return platform.altEnvVars.some((group) => group.every((envVar) => Boolean(process.env[envVar])))
+}
 
 export async function GET(req: Request) {
   const originFromRequest = new URL(req.url).origin.replace(/\/$/, "");
@@ -14,7 +21,7 @@ export async function GET(req: Request) {
     : process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
 
   const platforms = PLATFORMS.map((platform) => {
-    const configured = platform.envVars.every((envVar) => Boolean(process.env[envVar]))
+    const configured = isPlatformConfigured(platform)
 
     return {
       id: platform.id,
