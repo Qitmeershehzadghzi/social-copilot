@@ -115,7 +115,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
         
         // If there's a scheduled date, keep status as 'scheduled' for tracking
         // Otherwise keep as 'published' for immediate posts
-        if (scheduledDate && postStatus !== 'scheduled') {
+        if (scheduledDate) {
           await db.update(posts).set({ status: 'scheduled' }).where(eq(posts.id, id));
           console.log('[POST_UPDATE] Updated post status to scheduled');
         }

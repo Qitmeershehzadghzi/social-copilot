@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import { Calendar, momentLocalizer, Views } from "react-big-calendar";
+import { useEffect, useState, useCallback, useMemo, useRef, type ComponentType } from "react";
+import { Calendar, momentLocalizer, Views, type CalendarProps } from "react-big-calendar";
 import withDragAndDrop from "react-big-calendar/lib/addons/dragAndDrop";
 import moment from "moment";
 import "react-big-calendar/lib/css/react-big-calendar.css";
@@ -21,7 +21,6 @@ import { format, formatDistanceToNow } from "date-fns";
 import { useRouter } from "next/navigation";
 
 const localizer = momentLocalizer(moment);
-const DnDCalendar = withDragAndDrop(Calendar as any);
 
 /* ─── Constants ─────────────────────────────────────────── */
 const PLATFORM_COLORS: Record<string, string> = {
@@ -65,6 +64,10 @@ interface CalendarEvent {
     extraCount: number;
   };
 }
+
+const DnDCalendar = withDragAndDrop<CalendarEvent, object>(
+  Calendar as unknown as ComponentType<CalendarProps<CalendarEvent, object>>
+);
 
 /* ─── Stat Card ──────────────────────────────────────────── */
 function StatCard({ icon: Icon, label, value, color }: any) {
