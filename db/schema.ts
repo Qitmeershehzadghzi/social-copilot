@@ -50,6 +50,7 @@ export const posts = pgTable('posts', {
   content: text('content').notNull(),
   status: postStatusEnum('status').default('draft').notNull(),
   scheduledAt: timestamp('scheduled_at'),
+  scheduledEndAt: timestamp('scheduled_end_at'),
   publishedAt: timestamp('published_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),

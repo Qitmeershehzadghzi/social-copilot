@@ -1,193 +1,332 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo, useRef, type ComponentType } from "react";
-import { Calendar, momentLocalizer, Views, type CalendarProps } from "react-big-calendar";
+import { useCallback, useEffect, useMemo, useState, type ComponentType } from "react";
+import { Calendar, momentLocalizer, Views, type CalendarProps, type View } from "react-big-calendar";
 import withDragAndDrop from "react-big-calendar/lib/addons/dragAndDrop";
 import moment from "moment";
 import "react-big-calendar/lib/css/react-big-calendar.css";
 import "react-big-calendar/lib/addons/dragAndDrop/styles.css";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
 import {
-  Plus, Edit2, Trash2, ChevronLeft, ChevronRight,
-  Search, Copy, Clock, BarChart2, CheckCircle2,
-  XCircle, AlertCircle, Calendar as CalIcon, Layers,
-  RefreshCw, Eye
+  addDays,
+  addMinutes,
+  endOfDay,
+  endOfMonth,
+  endOfWeek,
+  format,
+  formatDistanceToNow,
+  startOfDay,
+  startOfMonth,
+  startOfWeek,
+} from "date-fns";
+import {
+  AlertCircle,
+  Calendar as CalendarIcon,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  Copy,
+  Edit2,
+  Loader2,
+  Plus,
+  RefreshCw,
+  Save,
+  Search,
+  Trash2,
+  XCircle,
 } from "lucide-react";
-import { toast } from "sonner";
-import { format, formatDistanceToNow } from "date-fns";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Textarea } from "@/components/ui/textarea";
+import { PLATFORMS } from "@/lib/platforms";
 
 const localizer = momentLocalizer(moment);
 
-/* ─── Constants ─────────────────────────────────────────── */
-const PLATFORM_COLORS: Record<string, string> = {
-  twitter:   "#1DA1F2",
-  linkedin:  "#0077B5",
-  facebook:  "#1877F2",
-  instagram: "#E4405F",
-  youtube:   "#FF0000",
-  tiktok:    "#69C9D0",
-  pinterest: "#E60023",
-  threads:   "#111111",
+type PostStatus = "draft" | "scheduled" | "published" | "failed";
+type TargetStatus = "pending" | "published" | "failed";
+
+type PostTarget = {
+  id: string;
+  platform: string;
+  status: TargetStatus;
+  errorMessage?: string | null;
+  platformPostId?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
-const PLATFORM_ICONS: Record<string, string> = {
-  twitter:   "𝕏",
-  linkedin:  "in",
-  facebook:  "f",
-  instagram: "◈",
-  youtube:   "▶",
-  tiktok:    "♪",
-  pinterest: "𝑃",
-  threads:   "@",
+type MediaAsset = {
+  id: string;
+  url: string;
+  type: "image" | "video";
 };
 
-const STATUS_STYLES: Record<string, { badge: string; icon: any; label: string }> = {
-  pending:   { badge: "text-amber-400 border-amber-400/40 bg-amber-400/10",   icon: AlertCircle,    label: "Pending" },
-  published: { badge: "text-emerald-400 border-emerald-400/40 bg-emerald-400/10", icon: CheckCircle2, label: "Published" },
-  failed:    { badge: "text-red-400 border-red-400/40 bg-red-400/10",         icon: XCircle,        label: "Failed" },
+type ScheduledPost = {
+  id: string;
+  content: string;
+  status: PostStatus;
+  scheduledAt: string | null;
+  scheduledEndAt: string | null;
+  publishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  targets: PostTarget[];
+  mediaAssets: MediaAsset[];
 };
 
-/* ─── Types ──────────────────────────────────────────────── */
-interface CalendarEvent {
+type CalendarEvent = {
   id: string;
   title: string;
   start: Date;
   end: Date;
   resource: {
-    post: any;
+    post: ScheduledPost;
     platforms: string[];
     primaryPlatform: string;
-    extraCount: number;
+    status: PostStatus;
   };
-}
+};
+
+type CalendarToolbarProps = {
+  date: Date;
+  label: string;
+  view: View;
+  onNavigate: (action: "PREV" | "NEXT" | "TODAY") => void;
+  onView: (view: View) => void;
+  platformFilters: string[];
+  onToggleFilter: (platform: string) => void;
+  searchQuery: string;
+  onSearch: (value: string) => void;
+  stats: {
+    total: number;
+    draft: number;
+    scheduled: number;
+    published: number;
+    failed: number;
+  };
+  isRefreshing: boolean;
+  onRefresh: () => void;
+};
 
 const DnDCalendar = withDragAndDrop<CalendarEvent, object>(
   Calendar as unknown as ComponentType<CalendarProps<CalendarEvent, object>>
 );
 
-/* ─── Stat Card ──────────────────────────────────────────── */
-function StatCard({ icon: Icon, label, value, color }: any) {
-  return (
-    <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-white/5 border border-white/10 backdrop-blur-sm">
-      <div className={`p-2 rounded-lg ${color}`}>
-        <Icon className="w-4 h-4" />
-      </div>
-      <div>
-        <p className="text-xs text-gray-500 leading-none mb-0.5">{label}</p>
-        <p className="text-lg font-bold text-white leading-none">{value}</p>
-      </div>
-    </div>
-  );
+const PLATFORM_COLORS: Record<string, string> = Object.fromEntries(
+  PLATFORMS.map((platform) => [platform.id, platform.dotClass.startsWith("bg-[") ? platform.dotClass.slice(4, -1) : "#8B5CF6"])
+);
+
+const ALL_PLATFORMS = Array.from(new Set([...PLATFORMS.map((platform) => platform.id), "threads"]));
+const SUPPORTED_VIEWS: View[] = [Views.MONTH, Views.WEEK, Views.DAY];
+
+const STATUS_STYLES: Record<PostStatus, { color: string; bg: string; border: string; label: string; icon: typeof AlertCircle }> = {
+  draft: {
+    color: "#94a3b8",
+    bg: "rgba(148, 163, 184, 0.12)",
+    border: "rgba(148, 163, 184, 0.42)",
+    label: "Draft",
+    icon: Edit2,
+  },
+  scheduled: {
+    color: "#f59e0b",
+    bg: "rgba(245, 158, 11, 0.12)",
+    border: "rgba(245, 158, 11, 0.45)",
+    label: "Scheduled",
+    icon: Clock,
+  },
+  published: {
+    color: "#10b981",
+    bg: "rgba(16, 185, 129, 0.12)",
+    border: "rgba(16, 185, 129, 0.45)",
+    label: "Published",
+    icon: CheckCircle2,
+  },
+  failed: {
+    color: "#ef4444",
+    bg: "rgba(239, 68, 68, 0.12)",
+    border: "rgba(239, 68, 68, 0.45)",
+    label: "Failed",
+    icon: XCircle,
+  },
+};
+
+function getVisibleRange(date: Date, view: View) {
+  if (view === Views.WEEK) {
+    return {
+      start: startOfWeek(date),
+      end: endOfWeek(date),
+    };
+  }
+
+  if (view === Views.DAY) {
+    return {
+      start: startOfDay(date),
+      end: endOfDay(date),
+    };
+  }
+
+  if (view === Views.AGENDA) {
+    return {
+      start: startOfDay(date),
+      end: endOfDay(addDays(date, 30)),
+    };
+  }
+
+  return {
+    start: startOfWeek(startOfMonth(date)),
+    end: endOfWeek(endOfMonth(date)),
+  };
 }
 
-/* ─── Custom Toolbar ─────────────────────────────────────── */
-function CustomToolbar({
-  onNavigate, onView, label, view,
-  platformFilters, onToggleFilter, allPlatforms,
-  searchQuery, onSearch, stats,
-}: any) {
+function getEventDate(post: ScheduledPost) {
+  return post.scheduledAt || post.publishedAt;
+}
+
+function toEvent(post: ScheduledPost): CalendarEvent | null {
+  const dateValue = getEventDate(post);
+  if (!dateValue) return null;
+
+  const start = new Date(dateValue);
+  if (Number.isNaN(start.getTime())) return null;
+
+  const parsedEnd = post.scheduledEndAt ? new Date(post.scheduledEndAt) : null;
+  const end = parsedEnd && !Number.isNaN(parsedEnd.getTime()) && parsedEnd > start
+    ? parsedEnd
+    : addMinutes(start, 30);
+  const platforms = post.targets.map((target) => target.platform);
+
+  return {
+    id: post.id,
+    title: post.content.trim()
+      ? post.content.trim().slice(0, 80) + (post.content.trim().length > 80 ? "..." : "")
+      : "Untitled post",
+    start,
+    end,
+    resource: {
+      post,
+      platforms,
+      primaryPlatform: platforms[0] || "draft",
+      status: post.status,
+    },
+  };
+}
+
+function formatDateInput(date: Date) {
+  return format(date, "yyyy-MM-dd");
+}
+
+function formatTimeInput(date: Date) {
+  return format(date, "HH:mm");
+}
+
+function combineLocalDateTime(dateValue: string, timeValue: string) {
+  const date = new Date(`${dateValue}T${timeValue || "00:00"}:00`);
+  if (Number.isNaN(date.getTime())) return null;
+  return date;
+}
+
+function updatePostInList(posts: ScheduledPost[], updated: ScheduledPost) {
+  return posts.map((post) => post.id === updated.id ? updated : post);
+}
+
+function CalendarToolbar({
+  label,
+  view,
+  onNavigate,
+  onView,
+  platformFilters,
+  onToggleFilter,
+  searchQuery,
+  onSearch,
+  stats,
+  isRefreshing,
+  onRefresh,
+}: CalendarToolbarProps) {
   const router = useRouter();
 
   return (
-    <div className="space-y-4 mb-6">
-      {/* Top row */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
+    <div className="mb-5 space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => onNavigate("PREV")}
-            className="p-2 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 text-white transition-all"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => onNavigate("TODAY")}
-            className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 text-white text-sm transition-all"
-          >
+          <Button type="button" variant="outline" size="icon" className="border-white/10 bg-white/5 text-white hover:bg-white/10" onClick={() => onNavigate("PREV")}>
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <Button type="button" variant="outline" size="sm" className="border-white/10 bg-white/5 text-white hover:bg-white/10" onClick={() => onNavigate("TODAY")}>
             Today
-          </button>
-          <button
-            onClick={() => onNavigate("NEXT")}
-            className="p-2 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 text-white transition-all"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
-          <h2 className="text-white font-bold text-xl ml-2 tracking-tight">{label}</h2>
+          </Button>
+          <Button type="button" variant="outline" size="icon" className="border-white/10 bg-white/5 text-white hover:bg-white/10" onClick={() => onNavigate("NEXT")}>
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+          <h2 className="ml-2 text-lg font-semibold tracking-tight text-white sm:text-xl">{label}</h2>
         </div>
 
-        <div className="flex items-center gap-2">
-          {/* View switcher */}
-          <div className="flex items-center bg-white/5 border border-white/10 rounded-xl p-1 gap-1">
-            {(["month", "week", "day", "agenda"] as const).map((v) => (
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex rounded-md border border-white/10 bg-white/5 p-1">
+            {([Views.MONTH, Views.WEEK, Views.DAY] as View[]).map((item) => (
               <button
-                key={v}
-                onClick={() => onView(v)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition-all ${
-                  view === v
-                    ? "bg-purple-600 text-white shadow-lg shadow-purple-600/20"
-                    : "text-gray-400 hover:text-white hover:bg-white/10"
-                }`}
+                key={item}
+                type="button"
+                onClick={() => onView(item)}
+                className={`rounded px-3 py-1.5 text-xs font-medium capitalize transition ${view === item ? "bg-cyan-500 text-black" : "text-gray-400 hover:bg-white/10 hover:text-white"}`}
               >
-                {v}
+                {item}
               </button>
             ))}
           </div>
-
-          <button
-            onClick={() => router.push("/dashboard/create-post")}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-cyan-500 text-white text-sm font-medium hover:opacity-90 transition-all shadow-lg shadow-purple-600/20"
-          >
-            <Plus className="w-4 h-4" />
+          <Button type="button" variant="outline" size="icon" className="border-white/10 bg-white/5 text-white hover:bg-white/10" onClick={onRefresh} disabled={isRefreshing}>
+            {isRefreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+          </Button>
+          <Button type="button" className="bg-gradient-to-r from-purple-600 to-cyan-500 text-white" onClick={() => router.push("/dashboard/create-post")}>
+            <Plus className="mr-2 h-4 w-4" />
             New Post
-          </button>
+          </Button>
         </div>
       </div>
 
-      {/* Stats row */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <StatCard icon={Layers}       label="Total Posts"  value={stats.total}     color="bg-purple-600/20 text-purple-400" />
-        <StatCard icon={AlertCircle}  label="Pending"      value={stats.pending}   color="bg-amber-500/20 text-amber-400" />
-        <StatCard icon={CheckCircle2} label="Published"    value={stats.published} color="bg-emerald-500/20 text-emerald-400" />
-        <StatCard icon={XCircle}      label="Failed"       value={stats.failed}    color="bg-red-500/20 text-red-400" />
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+        {[
+          ["Total", stats.total, "text-white"],
+          ["Draft", stats.draft, "text-slate-300"],
+          ["Scheduled", stats.scheduled, "text-amber-300"],
+          ["Published", stats.published, "text-emerald-300"],
+          ["Failed", stats.failed, "text-red-300"],
+        ].map(([labelText, value, color]) => (
+          <div key={labelText} className="rounded-md border border-white/10 bg-white/5 px-3 py-2">
+            <p className="text-xs text-gray-500">{labelText}</p>
+            <p className={`mt-1 text-lg font-semibold ${color}`}>{value}</p>
+          </div>
+        ))}
       </div>
 
-      {/* Search + Platform filters */}
       <div className="flex flex-wrap items-center gap-3">
-        <div className="relative flex-1 min-w-[200px] max-w-xs">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-          <input
+        <div className="relative min-w-[220px] flex-1 md:max-w-sm">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" />
+          <Input
             value={searchQuery}
-            onChange={(e) => onSearch(e.target.value)}
-            placeholder="Search posts…"
-            className="w-full pl-9 pr-4 py-2 rounded-xl bg-white/5 border border-white/10 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-purple-500/50 transition-all"
+            onChange={(event) => onSearch(event.target.value)}
+            placeholder="Search scheduled posts"
+            className="border-white/10 bg-white/5 pl-9 text-white placeholder:text-gray-500"
           />
         </div>
-
         <div className="flex flex-wrap gap-2">
-          {allPlatforms.map((p: string) => {
-            const active = platformFilters.includes(p);
+          {ALL_PLATFORMS.map((platform) => {
+            const active = platformFilters.includes(platform);
+            const color = PLATFORM_COLORS[platform] || "#8B5CF6";
             return (
               <button
-                key={p}
-                onClick={() => onToggleFilter(p)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
-                  active
-                    ? "text-white border-transparent"
-                    : "text-gray-500 border-white/10 hover:text-gray-300 hover:border-white/20"
-                }`}
-                style={active ? {
-                  backgroundColor: PLATFORM_COLORS[p] + "22",
-                  borderColor: PLATFORM_COLORS[p] + "66",
-                } : {}}
+                key={platform}
+                type="button"
+                onClick={() => onToggleFilter(platform)}
+                className={`inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-xs font-medium capitalize transition ${active ? "text-white" : "border-white/10 text-gray-500 hover:text-gray-300"}`}
+                style={active ? { borderColor: `${color}66`, backgroundColor: `${color}1f` } : undefined}
               >
-                <span
-                  className="w-2 h-2 rounded-full"
-                  style={{ backgroundColor: active ? PLATFORM_COLORS[p] : "#444" }}
-                />
-                <span className="capitalize">{p}</span>
+                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: active ? color : "#475569" }} />
+                {platform}
               </button>
             );
           })}
@@ -197,366 +336,428 @@ function CustomToolbar({
   );
 }
 
-/* ─── Event Component ────────────────────────────────────── */
-function EventComponent({ event }: { event: CalendarEvent }) {
-  const color = PLATFORM_COLORS[event.resource.primaryPlatform] || "#8B5CF6";
+function EventCard({ event }: { event: CalendarEvent }) {
+  const platformColor = PLATFORM_COLORS[event.resource.primaryPlatform] || "#8B5CF6";
+  const statusStyle = STATUS_STYLES[event.resource.status];
+
   return (
-    <div className="flex items-center gap-1.5 text-xs truncate h-full">
-      <span
-        className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-        style={{ backgroundColor: color }}
-      />
+    <div className="flex h-full min-w-0 items-center gap-1.5 overflow-hidden text-xs">
+      <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: platformColor }} />
       <span className="truncate font-medium">{event.title}</span>
-      {event.resource.extraCount > 0 && (
-        <span
-          className="flex-shrink-0 text-[9px] font-bold px-1 py-0.5 rounded"
-          style={{ backgroundColor: color + "33", color }}
-        >
-          +{event.resource.extraCount}
-        </span>
-      )}
+      <span className="ml-auto shrink-0 rounded px-1 text-[10px]" style={{ color: statusStyle.color }}>
+        {statusStyle.label}
+      </span>
     </div>
   );
 }
 
-/* ─── Main Page ──────────────────────────────────────────── */
 export default function CalendarPage() {
-  const [posts, setPosts] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
-  const [sheetOpen, setSheetOpen] = useState(false);
-  const [currentView, setCurrentView] = useState<any>(Views.MONTH);
-  const [currentDate, setCurrentDate] = useState(new Date());
-  const [platformFilters, setPlatformFilters] = useState<string[]>(Object.keys(PLATFORM_COLORS));
-  const [searchQuery, setSearchQuery] = useState("");
   const router = useRouter();
+  const [posts, setPosts] = useState<ScheduledPost[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [scheduleDate, setScheduleDate] = useState("");
+  const [startTime, setStartTime] = useState("");
+  const [endTime, setEndTime] = useState("");
+  const [isSavingSchedule, setIsSavingSchedule] = useState(false);
+  const [currentView, setCurrentView] = useState<View>(() => {
+    if (typeof window === "undefined") return Views.MONTH;
+    const saved = window.localStorage.getItem("social-copilot-calendar-view") as View | null;
+    return saved && SUPPORTED_VIEWS.includes(saved) ? saved : Views.MONTH;
+  });
+  const [currentDate, setCurrentDate] = useState<Date>(() => {
+    if (typeof window === "undefined") return new Date();
+    const saved = window.localStorage.getItem("social-copilot-calendar-date");
+    const parsed = saved ? new Date(saved) : null;
+    return parsed && !Number.isNaN(parsed.getTime()) ? parsed : new Date();
+  });
+  const [platformFilters, setPlatformFilters] = useState<string[]>(ALL_PLATFORMS);
+  const [searchQuery, setSearchQuery] = useState("");
 
-  useEffect(() => { fetchPosts(); }, []);
+  const visibleRange = useMemo(() => getVisibleRange(currentDate, currentView), [currentDate, currentView]);
 
-  async function fetchPosts() {
-    setLoading(true);
+  const fetchPosts = useCallback(async (options?: { quiet?: boolean }) => {
+    if (options?.quiet) setIsRefreshing(true);
+    else setIsLoading(true);
+    setError(null);
+
     try {
-      const res = await fetch("/api/posts");
-      if (res.ok) setPosts(await res.json());
-    } catch {
-      toast.error("Failed to load posts");
+      const params = new URLSearchParams({
+        start: visibleRange.start.toISOString(),
+        end: visibleRange.end.toISOString(),
+      });
+      const res = await fetch(`/api/posts?${params.toString()}`, { cache: "no-store" });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json() as ScheduledPost[];
+      setPosts(data);
+    } catch (fetchError) {
+      const message = fetchError instanceof Error ? fetchError.message : "Failed to load calendar";
+      setError(message);
+      toast.error(message);
     } finally {
-      setLoading(false);
+      setIsLoading(false);
+      setIsRefreshing(false);
     }
-  }
+  }, [visibleRange.end, visibleRange.start]);
 
-  const toggleFilter = (platform: string) =>
-    setPlatformFilters((prev) =>
-      prev.includes(platform) ? prev.filter((p) => p !== platform) : [...prev, platform]
-    );
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      void fetchPosts();
+    }, 0);
 
-  /* Stats */
-  const stats = useMemo(() => ({
-    total:     posts.length,
-    pending:   posts.filter(p => p.targets?.some((t: any) => t.status === "pending")).length,
-    published: posts.filter(p => p.targets?.every((t: any) => t.status === "published")).length,
-    failed:    posts.filter(p => p.targets?.some((t: any) => t.status === "failed")).length,
-  }), [posts]);
+    return () => window.clearTimeout(timeoutId);
+  }, [fetchPosts]);
 
-  /* Events */
-  const events: CalendarEvent[] = useMemo(() => {
+  useEffect(() => {
+    window.localStorage.setItem("social-copilot-calendar-view", currentView);
+    window.localStorage.setItem("social-copilot-calendar-date", currentDate.toISOString());
+  }, [currentDate, currentView]);
+
+  useEffect(() => {
+    const refreshOnFocus = () => {
+      if (document.visibilityState === "visible") void fetchPosts({ quiet: true });
+    };
+    document.addEventListener("visibilitychange", refreshOnFocus);
+    window.addEventListener("focus", refreshOnFocus);
+    return () => {
+      document.removeEventListener("visibilitychange", refreshOnFocus);
+      window.removeEventListener("focus", refreshOnFocus);
+    };
+  }, [fetchPosts]);
+
+  const events = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
     return posts
-      .filter((post) => {
-        const hasDate = post.scheduledAt || post.publishedAt;
-        const matchesSearch = !searchQuery ||
-          post.content?.toLowerCase().includes(searchQuery.toLowerCase());
-        return hasDate && matchesSearch;
-      })
-      .map((post) => {
-        const platforms: string[] = (post.targets || []).map((t: any) => t.platform);
-        const primaryPlatform = platforms[0] || "twitter";
-        const extraCount = Math.max(0, platforms.length - 1);
-        return {
-          id: post.id,
-          title: post.content
-            ? post.content.slice(0, 60) + (post.content.length > 60 ? "…" : "")
-            : "Untitled",
-          start: new Date(post.scheduledAt || post.publishedAt),
-          end:   new Date(new Date(post.scheduledAt || post.publishedAt).getTime() + 30 * 60000),
-          resource: { post, platforms, primaryPlatform, extraCount },
-        };
-      })
-      .filter(
-        (evt) =>
-          evt.resource.platforms.length === 0 ||
-          evt.resource.platforms.some((p) => platformFilters.includes(p))
-      );
-  }, [posts, platformFilters, searchQuery]);
+      .map(toEvent)
+      .filter((event): event is CalendarEvent => Boolean(event))
+      .filter((event) => !query || event.resource.post.content.toLowerCase().includes(query) || event.resource.platforms.some((platform) => platform.includes(query)))
+      .filter((event) => event.resource.platforms.length === 0 || event.resource.platforms.some((platform) => platformFilters.includes(platform)));
+  }, [platformFilters, posts, searchQuery]);
 
-  /* Drag & Drop reschedule */
-  const handleEventDrop = useCallback(async ({ event, start }: any) => {
+  const stats = useMemo(() => ({
+    total: events.length,
+    draft: events.filter((event) => event.resource.status === "draft").length,
+    scheduled: events.filter((event) => event.resource.status === "scheduled").length,
+    published: events.filter((event) => event.resource.status === "published").length,
+    failed: events.filter((event) => event.resource.status === "failed").length,
+  }), [events]);
+
+  const selectedEvent = useMemo(() => events.find((event) => event.id === selectedPostId) || null, [events, selectedPostId]);
+
+  const toggleFilter = (platform: string) => {
+    setPlatformFilters((current) =>
+      current.includes(platform)
+        ? current.filter((item) => item !== platform)
+        : [...current, platform]
+    );
+  };
+
+  const patchSchedule = useCallback(async (event: CalendarEvent, start: Date, end: Date) => {
+    const previousPosts = posts;
+    const optimisticPost: ScheduledPost = {
+      ...event.resource.post,
+      status: event.resource.post.status === "draft" ? "draft" : "scheduled",
+      scheduledAt: start.toISOString(),
+      scheduledEndAt: end.toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    setPosts((current) => updatePostInList(current, optimisticPost));
+
     try {
       const res = await fetch(`/api/posts/${event.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scheduledAt: start }),
+        body: JSON.stringify({
+          scheduledAt: start.toISOString(),
+          scheduledEndAt: end.toISOString(),
+          status: optimisticPost.status,
+        }),
       });
-      if (res.ok) {
-        toast.success("Post rescheduled!");
-        fetchPosts();
-      } else {
-        toast.error("Failed to reschedule");
+      if (!res.ok) throw new Error(await res.text());
+      const updated = await res.json() as ScheduledPost;
+      setPosts((current) => updatePostInList(current, updated));
+      const updatedEvent = toEvent(updated);
+      if (updatedEvent && updated.id === selectedPostId) {
+        setScheduleDate(formatDateInput(updatedEvent.start));
+        setStartTime(formatTimeInput(updatedEvent.start));
+        setEndTime(formatTimeInput(updatedEvent.end));
       }
-    } catch {
-      toast.error("Error rescheduling post");
+      toast.success("Schedule updated");
+    } catch (patchError) {
+      setPosts(previousPosts);
+      toast.error(patchError instanceof Error ? patchError.message : "Failed to update schedule");
     }
-  }, []);
+  }, [posts, selectedPostId]);
 
-  const handleSelectEvent = useCallback((event: CalendarEvent) => {
-    setSelectedEvent(event);
+  const handleEventDrop = useCallback((payload: { event: CalendarEvent; start: Date | string; end: Date | string }) => {
+    const start = new Date(payload.start);
+    const end = new Date(payload.end);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) {
+      toast.error("Invalid schedule date");
+      return;
+    }
+    void patchSchedule(payload.event, start, end);
+  }, [patchSchedule]);
+
+  const handleEventResize = useCallback((payload: { event: CalendarEvent; start: Date | string; end: Date | string }) => {
+    const start = new Date(payload.start);
+    const end = new Date(payload.end);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) {
+      toast.error("Invalid event duration");
+      return;
+    }
+    void patchSchedule(payload.event, start, end);
+  }, [patchSchedule]);
+
+  const handleSelectEvent = (event: CalendarEvent) => {
+    setSelectedPostId(event.id);
+    setScheduleDate(formatDateInput(event.start));
+    setStartTime(formatTimeInput(event.start));
+    setEndTime(formatTimeInput(event.end));
     setSheetOpen(true);
-  }, []);
+  };
 
-  const handleSelectSlot = useCallback(({ start }: { start: Date }) => {
-    router.push(`/dashboard/create-post?date=${format(start, "yyyy-MM-dd")}`);
-  }, [router]);
+  const handleSelectSlot = ({ start }: { start: Date }) => {
+    router.push(`/dashboard/create-post?date=${encodeURIComponent(start.toISOString())}`);
+  };
 
-  const handleDeletePost = async (postId: string) => {
-    if (!confirm("Are you sure you want to delete this post?")) return;
+  const saveDrawerSchedule = async () => {
+    if (!selectedEvent) return;
+
+    const start = combineLocalDateTime(scheduleDate, startTime);
+    const end = combineLocalDateTime(scheduleDate, endTime);
+    if (!start || !end || end <= start) {
+      toast.error("Choose a valid start and end time");
+      return;
+    }
+
+    setIsSavingSchedule(true);
+    await patchSchedule(selectedEvent, start, end);
+    setIsSavingSchedule(false);
+  };
+
+  const deletePost = async () => {
+    if (!selectedEvent) return;
+    if (!confirm("Delete this scheduled post?")) return;
+
+    const previousPosts = posts;
+    setPosts((current) => current.filter((post) => post.id !== selectedEvent.id));
+    setSheetOpen(false);
+    setSelectedPostId(null);
+
     try {
-      const res = await fetch(`/api/posts/${postId}`, { method: "DELETE" });
-      if (res.ok) {
-        toast.success("Post deleted");
-        setSheetOpen(false);
-        fetchPosts();
-      } else {
-        toast.error("Failed to delete");
-      }
-    } catch {
-      toast.error("Error deleting post");
+      const res = await fetch(`/api/posts/${selectedEvent.id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(await res.text());
+      toast.success("Post deleted");
+    } catch (deleteError) {
+      setPosts(previousPosts);
+      toast.error(deleteError instanceof Error ? deleteError.message : "Failed to delete post");
     }
   };
 
-  const copyContent = (text: string) => {
-    navigator.clipboard.writeText(text);
-    toast.success("Copied to clipboard!");
+  const copyContent = async () => {
+    if (!selectedEvent) return;
+    await navigator.clipboard.writeText(selectedEvent.resource.post.content);
+    toast.success("Copied to clipboard");
   };
 
-  const eventPropGetter = useCallback((event: CalendarEvent) => {
-    const color = PLATFORM_COLORS[event.resource.primaryPlatform] || "#8B5CF6";
+  const eventPropGetter = (event: CalendarEvent) => {
+    const status = STATUS_STYLES[event.resource.status];
+    const platformColor = PLATFORM_COLORS[event.resource.primaryPlatform] || status.color;
+
     return {
       style: {
-        backgroundColor: color + "22",
-        borderLeft: `3px solid ${color}`,
+        backgroundColor: status.bg,
+        border: `1px solid ${status.border}`,
+        borderLeft: `4px solid ${platformColor}`,
+        borderRadius: "6px",
         color: "#fff",
-        borderRadius: "8px",
         padding: "2px 6px",
-        fontSize: "11px",
-        border: `1px solid ${color}33`,
-        backdropFilter: "blur(4px)",
+        boxShadow: "0 10px 24px rgba(0,0,0,0.16)",
       },
     };
-  }, []);
+  };
 
-  const allPlatforms = Object.keys(PLATFORM_COLORS);
+  const selectedStatus = selectedEvent ? STATUS_STYLES[selectedEvent.resource.status] : null;
+  const SelectedStatusIcon = selectedStatus?.icon || AlertCircle;
 
   return (
     <>
       <style>{`
-        /* Dark theme overrides for react-big-calendar */
         .rbc-calendar { background: transparent; color: white; font-family: inherit; }
-        .rbc-header { background: rgba(255,255,255,0.03); border-color: rgba(255,255,255,0.08) !important; color: #9ca3af; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; padding: 10px 8px; }
-        .rbc-month-view, .rbc-time-view, .rbc-agenda-view { border-color: rgba(255,255,255,0.08) !important; border-radius: 16px; overflow: hidden; }
-        .rbc-day-bg { background: transparent; }
-        .rbc-day-bg + .rbc-day-bg { border-color: rgba(255,255,255,0.06) !important; }
-        .rbc-off-range-bg { background: rgba(0,0,0,0.2); }
-        .rbc-today { background: rgba(139,92,246,0.08) !important; }
-        .rbc-date-cell { color: #d1d5db; font-size: 13px; padding: 6px 10px; }
-        .rbc-date-cell.rbc-now { color: #a78bfa; font-weight: 700; }
-        .rbc-month-row { border-color: rgba(255,255,255,0.06) !important; }
-        .rbc-month-row + .rbc-month-row { border-color: rgba(255,255,255,0.06) !important; }
+        .rbc-header { background: rgba(255,255,255,0.03); border-color: rgba(255,255,255,0.08) !important; color: #9ca3af; font-weight: 600; font-size: 12px; text-transform: uppercase; padding: 10px 8px; }
+        .rbc-month-view, .rbc-time-view, .rbc-agenda-view { border-color: rgba(255,255,255,0.08) !important; border-radius: 8px; overflow: hidden; }
+        .rbc-day-bg + .rbc-day-bg, .rbc-month-row, .rbc-month-row + .rbc-month-row, .rbc-timeslot-group, .rbc-time-content, .rbc-time-header-content { border-color: rgba(255,255,255,0.06) !important; }
+        .rbc-off-range-bg { background: rgba(0,0,0,0.18); }
+        .rbc-today { background: rgba(6,182,212,0.08) !important; }
+        .rbc-date-cell { color: #d1d5db; font-size: 12px; padding: 6px 8px; }
+        .rbc-date-cell.rbc-now { color: #67e8f9; font-weight: 700; }
         .rbc-time-slot { border-color: rgba(255,255,255,0.04) !important; color: #6b7280; font-size: 11px; }
-        .rbc-timeslot-group { border-color: rgba(255,255,255,0.06) !important; }
-        .rbc-time-content { border-color: rgba(255,255,255,0.08) !important; }
-        .rbc-time-header-content { border-color: rgba(255,255,255,0.08) !important; }
-        .rbc-current-time-indicator { background: #a78bfa; }
-        .rbc-show-more { color: #a78bfa; font-size: 11px; font-weight: 600; }
-        .rbc-show-more:hover { color: #c4b5fd; }
-        .rbc-agenda-table { color: #e5e7eb; border-color: rgba(255,255,255,0.08) !important; }
-        .rbc-agenda-table thead { background: rgba(255,255,255,0.03); }
-        .rbc-agenda-table thead th { color: #9ca3af; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
-        .rbc-agenda-table tbody > tr > td { border-color: rgba(255,255,255,0.06) !important; }
-        .rbc-agenda-table tbody > tr:hover { background: rgba(255,255,255,0.03); }
-        .rbc-agenda-empty { color: #6b7280; padding: 40px; text-align: center; }
-        .rbc-selected { outline: 2px solid rgba(139,92,246,0.5) !important; }
-        .rbc-event:focus { outline: 2px solid rgba(139,92,246,0.5) !important; }
-        .rbc-slot-selection { background: rgba(139,92,246,0.2); border: 1px solid rgba(139,92,246,0.5); }
-        .rbc-day-slot .rbc-time-slot { border-color: rgba(255,255,255,0.04) !important; }
-        .rbc-label { color: #6b7280; }
+        .rbc-current-time-indicator { background: #22d3ee; }
+        .rbc-show-more { color: #67e8f9; font-size: 11px; font-weight: 600; }
         .rbc-toolbar { display: none; }
-        .rbc-event { cursor: pointer; }
-        .rbc-event-label { font-size: 10px; color: rgba(255,255,255,0.7); }
-        .rbc-addons-dnd-drag-preview { opacity: 0.8; transform: scale(1.02); }
-        .rbc-addons-dnd-over { background: rgba(139,92,246,0.1) !important; }
+        .rbc-event { cursor: grab; transition: transform 160ms ease, box-shadow 160ms ease; }
+        .rbc-event:hover { transform: translateY(-1px); }
+        .rbc-event:focus, .rbc-selected { outline: 2px solid rgba(34,211,238,0.55) !important; }
+        .rbc-event-label { color: rgba(255,255,255,0.72); font-size: 10px; }
+        .rbc-slot-selection, .rbc-addons-dnd-over { background: rgba(34,211,238,0.14) !important; border: 1px solid rgba(34,211,238,0.4); }
+        .rbc-agenda-table { color: #e5e7eb; border-color: rgba(255,255,255,0.08) !important; }
+        .rbc-agenda-table tbody > tr > td, .rbc-agenda-table thead th { border-color: rgba(255,255,255,0.06) !important; }
       `}</style>
 
-      <div className="space-y-2 text-white h-[calc(100vh-5rem)] flex flex-col">
-        <DnDCalendar
-          localizer={localizer}
-          events={events}
-          startAccessor="start"
-          endAccessor="end"
-          view={currentView}
-          onView={setCurrentView}
+      <div className="flex h-[calc(100vh-6rem)] flex-col text-white">
+        <CalendarToolbar
           date={currentDate}
-          onNavigate={setCurrentDate}
-          onSelectEvent={handleSelectEvent}
-          onSelectSlot={handleSelectSlot}
-          onEventDrop={handleEventDrop}
-          onEventResize={handleEventDrop}
-          selectable
-          resizable
-          eventPropGetter={eventPropGetter}
-          components={{
-            event: EventComponent,
-            toolbar: (toolbarProps: any) => (
-              <CustomToolbar
-                {...toolbarProps}
-                platformFilters={platformFilters}
-                onToggleFilter={toggleFilter}
-                allPlatforms={allPlatforms}
-                searchQuery={searchQuery}
-                onSearch={setSearchQuery}
-                stats={stats}
-              />
-            ),
+          label={format(currentDate, currentView === Views.DAY ? "EEEE, MMMM d, yyyy" : "MMMM yyyy")}
+          view={currentView}
+          onNavigate={(action) => {
+            if (action === "TODAY") setCurrentDate(new Date());
+            if (action === "PREV") setCurrentDate((date) => currentView === Views.DAY ? addDays(date, -1) : currentView === Views.WEEK ? addDays(date, -7) : new Date(date.getFullYear(), date.getMonth() - 1, 1));
+            if (action === "NEXT") setCurrentDate((date) => currentView === Views.DAY ? addDays(date, 1) : currentView === Views.WEEK ? addDays(date, 7) : new Date(date.getFullYear(), date.getMonth() + 1, 1));
           }}
-          style={{ flex: 1, minHeight: 0 }}
+          onView={setCurrentView}
+          platformFilters={platformFilters}
+          onToggleFilter={toggleFilter}
+          searchQuery={searchQuery}
+          onSearch={setSearchQuery}
+          stats={stats}
+          isRefreshing={isRefreshing}
+          onRefresh={() => void fetchPosts({ quiet: true })}
         />
+
+        <div className="relative min-h-0 flex-1">
+          <DnDCalendar
+            localizer={localizer}
+            events={events}
+            startAccessor="start"
+            endAccessor="end"
+            view={currentView}
+            date={currentDate}
+            onNavigate={setCurrentDate}
+            onView={setCurrentView}
+            onSelectEvent={handleSelectEvent}
+            onSelectSlot={handleSelectSlot}
+            onEventDrop={handleEventDrop}
+            onEventResize={handleEventResize}
+            selectable
+            resizable
+            popup
+            eventPropGetter={eventPropGetter}
+            components={{
+              event: EventCard,
+              toolbar: () => null,
+            }}
+            style={{ height: "100%" }}
+          />
+
+          {isLoading && (
+            <div className="absolute inset-0 flex items-center justify-center rounded-md bg-black/40 backdrop-blur-sm">
+              <div className="flex items-center gap-2 rounded-md border border-white/10 bg-[#13131a] px-4 py-3 text-sm text-gray-300">
+                <Loader2 className="h-4 w-4 animate-spin text-cyan-400" />
+                Loading calendar
+              </div>
+            </div>
+          )}
+
+          {!isLoading && !error && events.length === 0 && (
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+              <div className="max-w-sm rounded-md border border-white/10 bg-[#13131a]/95 p-6 text-center shadow-2xl">
+                <CalendarIcon className="mx-auto h-9 w-9 text-cyan-400" />
+                <h3 className="mt-3 text-lg font-semibold text-white">No posts on this calendar</h3>
+                <p className="mt-2 text-sm leading-6 text-gray-400">Create or schedule a post, then it will appear here instantly after the calendar refreshes.</p>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* ─── Detail Sheet ─────────────────────────────────── */}
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent className="bg-[#0e0e18] border-white/10 text-white w-full sm:max-w-md overflow-y-auto flex flex-col">
-          <SheetHeader className="pb-4 border-b border-white/10">
-            <SheetTitle className="text-white text-lg font-bold flex items-center gap-2">
-              <CalIcon className="w-5 h-5 text-purple-400" />
-              Post Details
+        <SheetContent className="flex w-full flex-col overflow-y-auto border-white/10 bg-[#0e0e18] text-white sm:max-w-lg">
+          <SheetHeader className="border-b border-white/10 pb-4">
+            <SheetTitle className="flex items-center gap-2 text-white">
+              <CalendarIcon className="h-5 w-5 text-cyan-400" />
+              Schedule Details
             </SheetTitle>
           </SheetHeader>
 
-          {selectedEvent && (() => {
-            const post = selectedEvent.resource.post;
-            const overallStatus = post.targets?.every((t: any) => t.status === "published")
-              ? "published"
-              : post.targets?.some((t: any) => t.status === "failed")
-              ? "failed"
-              : "pending";
-            const StatusInfo = STATUS_STYLES[overallStatus];
+          {selectedEvent && selectedStatus && (
+            <div className="flex flex-1 flex-col gap-5 pt-5">
+              <div className="flex items-center justify-between gap-3">
+                <Badge variant="outline" className="gap-1.5 border-white/10 px-3 py-1.5" style={{ color: selectedStatus.color, backgroundColor: selectedStatus.bg, borderColor: selectedStatus.border }}>
+                  <SelectedStatusIcon className="h-3.5 w-3.5" />
+                  {selectedStatus.label}
+                </Badge>
+                <span className="text-xs text-gray-500">
+                  Updated {formatDistanceToNow(new Date(selectedEvent.resource.post.updatedAt), { addSuffix: true })}
+                </span>
+              </div>
 
-            return (
-              <div className="space-y-5 mt-5 flex-1">
-                {/* Overall status pill */}
-                <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border ${StatusInfo.badge}`}>
-                  <StatusInfo.icon className="w-3.5 h-3.5" />
-                  {StatusInfo.label}
-                </div>
-
-                {/* Content */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-xs uppercase text-gray-500 tracking-wider font-semibold">Content</h4>
-                    <button
-                      onClick={() => copyContent(post.content)}
-                      className="flex items-center gap-1 text-xs text-gray-500 hover:text-white transition-colors"
-                    >
-                      <Copy className="w-3 h-3" /> Copy
-                    </button>
-                  </div>
-                  <p className="text-sm whitespace-pre-wrap bg-white/5 border border-white/10 rounded-xl p-4 leading-relaxed text-gray-200">
-                    {post.content || "No content"}
-                  </p>
-                </div>
-
-                {/* Time info */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-white/5 border border-white/10 rounded-xl p-3">
-                    <p className="text-xs text-gray-500 mb-1 flex items-center gap-1">
-                      <Clock className="w-3 h-3" /> Scheduled
-                    </p>
-                    <p className="text-sm font-medium text-white">
-                      {format(selectedEvent.start, "MMM d, yyyy")}
-                    </p>
-                    <p className="text-xs text-gray-400">{format(selectedEvent.start, "h:mm a")}</p>
-                  </div>
-                  <div className="bg-white/5 border border-white/10 rounded-xl p-3">
-                    <p className="text-xs text-gray-500 mb-1">Relative</p>
-                    <p className="text-sm font-medium text-white capitalize">
-                      {formatDistanceToNow(selectedEvent.start, { addSuffix: true })}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Platform targets */}
-                <div className="space-y-2">
-                  <h4 className="text-xs uppercase text-gray-500 tracking-wider font-semibold">
-                    Platforms ({(post.targets || []).length})
-                  </h4>
-                  <div className="space-y-2">
-                    {(post.targets || []).map((target: any) => {
-                      const si = STATUS_STYLES[target.status] || STATUS_STYLES.pending;
-                      const color = PLATFORM_COLORS[target.platform] || "#8B5CF6";
-                      return (
-                        <div
-                          key={target.id}
-                          className="flex items-center justify-between rounded-xl px-4 py-3 border border-white/10"
-                          style={{ background: color + "0d" }}
-                        >
-                          <div className="flex items-center gap-3">
-                            <div
-                              className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold"
-                              style={{ backgroundColor: color + "22", color }}
-                            >
-                              {PLATFORM_ICONS[target.platform] || "?"}
-                            </div>
-                            <div>
-                              <p className="text-sm font-semibold capitalize">{target.platform}</p>
-                              {target.publishedAt && (
-                                <p className="text-[10px] text-gray-500">
-                                  {format(new Date(target.publishedAt), "MMM d, h:mm a")}
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                          <Badge variant="outline" className={`text-[10px] ${si.badge}`}>
-                            <si.icon className="w-2.5 h-2.5 mr-1" />
-                            {si.label}
-                          </Badge>
-                        </div>
-                      );
-                    })}
-                    {(!post.targets || post.targets.length === 0) && (
-                      <p className="text-sm text-gray-500 text-center py-4">No platform targets</p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Actions */}
-                <div className="flex gap-3 pt-4 border-t border-white/10 sticky bottom-0 bg-[#0e0e18] pb-2">
-                  <button
-                    className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white text-sm font-medium transition-all"
-                    onClick={() => {
-                      setSheetOpen(false);
-                      router.push(`/dashboard/create-post?postId=${selectedEvent.id}`);
-                    }}
-                  >
-                    <Edit2 className="w-4 h-4" /> Edit Post
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold uppercase text-gray-500">Content</p>
+                  <button type="button" className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-white" onClick={copyContent}>
+                    <Copy className="h-3 w-3" />
+                    Copy
                   </button>
-                  <button
-                    className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-red-500/15 hover:bg-red-500/25 text-red-400 text-sm font-medium border border-red-500/20 transition-all"
-                    onClick={() => handleDeletePost(selectedEvent.id)}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                </div>
+                <Textarea value={selectedEvent.resource.post.content} readOnly className="min-h-32 resize-none border-white/10 bg-white/5 text-gray-200" />
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div className="space-y-2 sm:col-span-1">
+                  <label className="text-xs font-semibold uppercase text-gray-500">Date</label>
+                  <Input type="date" value={scheduleDate} onChange={(event) => setScheduleDate(event.target.value)} className="border-white/10 bg-white/5 text-white" disabled={selectedEvent.resource.status === "published"} />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold uppercase text-gray-500">Start</label>
+                  <Input type="time" value={startTime} onChange={(event) => setStartTime(event.target.value)} className="border-white/10 bg-white/5 text-white" disabled={selectedEvent.resource.status === "published"} />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold uppercase text-gray-500">End</label>
+                  <Input type="time" value={endTime} onChange={(event) => setEndTime(event.target.value)} className="border-white/10 bg-white/5 text-white" disabled={selectedEvent.resource.status === "published"} />
                 </div>
               </div>
-            );
-          })()}
+
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase text-gray-500">Platforms</p>
+                <div className="space-y-2">
+                  {selectedEvent.resource.post.targets.length > 0 ? selectedEvent.resource.post.targets.map((target) => {
+                    const platformColor = PLATFORM_COLORS[target.platform] || "#8B5CF6";
+                    return (
+                      <div key={target.id} className="flex items-center justify-between rounded-md border border-white/10 bg-white/5 px-3 py-2">
+                        <span className="inline-flex items-center gap-2 text-sm capitalize text-gray-200">
+                          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: platformColor }} />
+                          {target.platform}
+                        </span>
+                        <Badge variant="outline" className="border-white/10 capitalize text-gray-300">{target.status}</Badge>
+                      </div>
+                    );
+                  }) : (
+                    <p className="rounded-md border border-white/10 bg-white/5 p-3 text-sm text-gray-400">No platform targets yet.</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="mt-auto flex flex-wrap gap-2 border-t border-white/10 pt-4">
+                <Button type="button" className="bg-cyan-500 text-black hover:bg-cyan-400" onClick={saveDrawerSchedule} disabled={isSavingSchedule || selectedEvent.resource.status === "published"}>
+                  {isSavingSchedule ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                  Save Schedule
+                </Button>
+                <Button type="button" variant="outline" className="border-white/10 text-white hover:bg-white/10" onClick={() => router.push(`/dashboard/create-post?postId=${selectedEvent.id}`)}>
+                  <Edit2 className="mr-2 h-4 w-4" />
+                  Edit Post
+                </Button>
+                <Button type="button" variant="outline" className="ml-auto border-red-500/30 text-red-300 hover:bg-red-500/10" onClick={deletePost}>
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete
+                </Button>
+              </div>
+            </div>
+          )}
         </SheetContent>
       </Sheet>
     </>

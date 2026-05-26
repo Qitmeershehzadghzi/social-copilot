@@ -108,8 +108,10 @@ export const publishPostTarget = inngest.createFunction(
     try {
       console.log("[PUBLISH_POST_TARGET] Publishing to platform:", data.platform);
       const result = await step.run("publish-to-platform", async () => {
-        const mediaUrls = postRecord.mediaAssets.map((media: { url: string }) => media.url);
-        console.log("[PUBLISH_POST_TARGET] Calling publishPost with", mediaUrls.length, "media URLs");
+        const mediaUrls = data.platform === 'youtube'
+          ? postRecord.mediaAssets.filter((media: { type: string }) => media.type === 'video').map((media: { url: string }) => media.url)
+          : postRecord.mediaAssets.map((media: { url: string }) => media.url);
+        console.log('[PUBLISH_POST_TARGET] Calling publishPost with', mediaUrls.length, 'media URLs for', data.platform);
         return publishPost(data.platform, accessToken, postRecord.content, mediaUrls, account.accountHandle, data.scheduledAt);
       });
 

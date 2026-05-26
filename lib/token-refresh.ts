@@ -71,7 +71,16 @@ async function refreshYouTubeToken(refreshToken: string) {
 
   const data = (await res.json()) as TokenResponse;
   if (!res.ok || !data.access_token) {
-    throw new Error(data.error_description || data.error || 'YouTube token refresh failed');
+    const errorMsg = data.error_description || data.error || 'YouTube token refresh failed';
+    console.error('[TOKEN_REFRESH] YouTube refresh failed:', { 
+      status: res.status, 
+      error: errorMsg,
+      clientId: clientId.substring(0, 20) + '***'
+    });
+    if (res.status === 401 || errorMsg === 'invalid_grant') {
+      throw new Error('YouTube refresh token expired or invalid. Please reconnect your YouTube account in Settings.');
+    }
+    throw new Error(errorMsg);
   }
 
   return data;

@@ -62,14 +62,19 @@ export default async function DashboardPage() {
   };
 
   // Upcoming Posts
-  const upcomingPostsData = await db.query.posts.findMany({
-    where: and(eq(posts.userId, user.id), eq(posts.status, 'scheduled'), gte(posts.scheduledAt, new Date())),
-    orderBy: [asc(posts.scheduledAt)],
-    limit: 5,
-    with: {
-      targets: true
-    }
-  });
+  const upcomingPostsData = await db.select({
+    id: posts.id,
+    userId: posts.userId,
+    content: posts.content,
+    status: posts.status,
+    scheduledAt: posts.scheduledAt,
+    targetPlatform: postTargets.platform,
+  })
+    .from(posts)
+    .leftJoin(postTargets, eq(postTargets.postId, posts.id))
+    .where(and(eq(posts.userId, user.id), eq(posts.status, 'scheduled'), gte(posts.scheduledAt, new Date())))
+    .orderBy(asc(posts.scheduledAt))
+    .limit(5);
 
   const getPlatformColor = (platform: string) => {
     const colors: Record<string, string> = {
@@ -84,23 +89,49 @@ export default async function DashboardPage() {
     return colors[platform.toLowerCase()] || 'bg-gray-500';
   };
 
-  const upcomingPosts = upcomingPostsData.map(post => {
-    const platform = post.targets[0]?.platform || 'Multiple';
-    return {
-      time: post.scheduledAt ? formatDistanceToNow(post.scheduledAt, { addSuffix: true }) : 'Soon',
-      platform,
-      content: post.content.length > 50 ? post.content.substring(0, 50) + '...' : post.content,
-      color: getPlatformColor(platform)
-    };
-  });
+  const upcomingPosts = Array.from(
+    upcomingPostsData.reduce((map, row) => {
+      const key = row.id;
+      if (!map.has(key)) {
+        map.set(key, {
+          time: row.scheduledAt ? formatDistanceToNow(row.scheduledAt, { addSuffix: true }) : 'Soon',
+          platform: row.targetPlatform || 'Multiple',
+          content: row.content.length > 50 ? row.content.substring(0, 50) + '...' : row.content,
+          color: getPlatformColor(row.targetPlatform || 'Multiple'),
+        });
+      }
+      return map;
+    }, new Map()).values()
+  );
 
   // Recent Activity (Union of recent published posts and auto-replies)
-  const recentPosts = await db.query.posts.findMany({
-    where: and(eq(posts.userId, user.id), inArray(posts.status, ['published', 'failed'])),
-    orderBy: [desc(posts.updatedAt)],
-    limit: 10,
-    with: { targets: true }
-  });
+  const recentPostsData = await db.select({
+    id: posts.id,
+    content: posts.content,
+    status: posts.status,
+    updatedAt: posts.updatedAt,
+    targetPlatform: postTargets.platform,
+  })
+    .from(posts)
+    .leftJoin(postTargets, eq(postTargets.postId, posts.id))
+    .where(and(eq(posts.userId, user.id), inArray(posts.status, ['published', 'failed'])))
+    .orderBy(desc(posts.updatedAt))
+    .limit(10);
+
+  const recentPosts = Array.from(
+    recentPostsData.reduce((map, row) => {
+      if (!map.has(row.id)) {
+        map.set(row.id, {
+          id: row.id,
+          content: row.content,
+          status: row.status,
+          updatedAt: row.updatedAt,
+          platform: row.targetPlatform || 'Unknown',
+        });
+      }
+      return map;
+    }, new Map()).values()
+  );
 
   let recentEvents: any[] = [];
   if (ruleIds.length > 0) {
@@ -114,7 +145,7 @@ export default async function DashboardPage() {
   const combinedActivity = [
     ...recentPosts.map(p => ({
       action: p.status === 'published' ? 'Post published' : 'Post failed',
-      platform: p.targets[0]?.platform || 'Multiple',
+      platform: p.platform,
       timeObj: p.updatedAt,
       time: formatDistanceToNow(p.updatedAt, { addSuffix: true }),
       status: p.status

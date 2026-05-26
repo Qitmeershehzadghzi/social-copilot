@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent } from "react";
+import React, { Suspense, useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -12,6 +12,7 @@ import { format } from "date-fns";
 import { Crop, Eraser, Hash, Minimize2, Pencil, Sparkles, CalendarIcon, Loader2, Send, Wand2, X } from "lucide-react";
 import { toast } from "sonner";
 import { getPlatformConfig, getStrictestPlatformLimit } from "@/lib/platforms";
+import { useRouter, useSearchParams } from "next/navigation";
 
 type ConnectedAccount = {
   id: string;
@@ -27,6 +28,16 @@ type UploadedMedia = {
   size?: number;
   width?: number | null;
   height?: number | null;
+};
+
+type PostDetail = {
+  id: string;
+  content: string;
+  status: "draft" | "scheduled" | "published" | "failed";
+  scheduledAt: string | null;
+  scheduledEndAt: string | null;
+  targets: Array<{ platform: string }>;
+  mediaAssets: UploadedMedia[];
 };
 
 type TransformOption = {
@@ -98,7 +109,9 @@ function encodePromptForImageKit(prompt: string) {
     .replace(/=+$/g, "");
 }
 
-export default function CreatePostPage() {
+function CreatePostPageContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [accounts, setAccounts] = useState<ConnectedAccount[]>([]);
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
   const [content, setContent] = useState("");
@@ -126,7 +139,10 @@ export default function CreatePostPage() {
   // Post state (simplified)
   const [isPostNow, setIsPostNow] = useState(true);
   const [scheduledAt, setScheduledAt] = useState<Date | undefined>(undefined);
+  const [scheduledTime, setScheduledTime] = useState("09:00");
+  const [scheduledEndTime, setScheduledEndTime] = useState("09:30");
   const [postId, setPostId] = useState<string | null>(null);
+  const [isLoadingPost, setIsLoadingPost] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiModalOpen, setAiModalOpen] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -144,9 +160,98 @@ export default function CreatePostPage() {
     }
   }, []);
 
+  const formatTimeInput = useCallback((date: Date) => {
+    const hours = String(date.getHours()).padStart(2, "0");
+    const minutes = String(date.getMinutes()).padStart(2, "0");
+    return `${hours}:${minutes}`;
+  }, []);
+
+  const combineScheduledDateTime = useCallback((date: Date | undefined, time: string) => {
+    if (!date) return null;
+    const [hours = "0", minutes = "0"] = time.split(":");
+    const combined = new Date(date);
+    combined.setHours(Number(hours), Number(minutes), 0, 0);
+    if (Number.isNaN(combined.getTime())) return null;
+    return combined;
+  }, []);
+
+  const buildSchedulePayload = useCallback(() => {
+    if (isPostNow || !scheduledAt) {
+      return { scheduledAt: null, scheduledEndAt: null };
+    }
+
+    const start = combineScheduledDateTime(scheduledAt, scheduledTime);
+    const end = combineScheduledDateTime(scheduledAt, scheduledEndTime);
+
+    if (!start || !end || end <= start) {
+      throw new Error("Please select a valid schedule start and end time");
+    }
+
+    return {
+      scheduledAt: start.toISOString(),
+      scheduledEndAt: end.toISOString(),
+    };
+  }, [combineScheduledDateTime, isPostNow, scheduledAt, scheduledEndTime, scheduledTime]);
+
+  const applyLoadedPost = useCallback((post: PostDetail) => {
+    setPostId(post.id);
+    setContent(post.content);
+    setSelectedPlatforms(post.targets.map((target) => target.platform));
+    setUploadedMedia(post.mediaAssets || []);
+
+    if (post.scheduledAt) {
+      const start = new Date(post.scheduledAt);
+      const end = post.scheduledEndAt ? new Date(post.scheduledEndAt) : new Date(start.getTime() + 30 * 60_000);
+      setIsPostNow(false);
+      setScheduledAt(start);
+      setScheduledTime(formatTimeInput(start));
+      setScheduledEndTime(formatTimeInput(end));
+    } else {
+      setIsPostNow(post.status !== "draft");
+      setScheduledAt(undefined);
+    }
+  }, [formatTimeInput]);
+
   useEffect(() => {
     void Promise.resolve().then(fetchAccounts);
   }, [fetchAccounts]);
+
+  useEffect(() => {
+    const queryPostId = searchParams.get("postId");
+    const queryDate = searchParams.get("date");
+
+    if (queryDate && !queryPostId) {
+      const parsed = new Date(queryDate);
+      if (!Number.isNaN(parsed.getTime())) {
+        const timeoutId = window.setTimeout(() => {
+          setIsPostNow(false);
+          setScheduledAt(parsed);
+          setScheduledTime(formatTimeInput(parsed));
+          setScheduledEndTime(formatTimeInput(new Date(parsed.getTime() + 30 * 60_000)));
+        }, 0);
+
+        return () => window.clearTimeout(timeoutId);
+      }
+    }
+
+    if (!queryPostId || queryPostId === postId) return;
+
+    const loadPost = async () => {
+      setIsLoadingPost(true);
+      try {
+        const res = await fetch(`/api/posts/${queryPostId}`, { cache: "no-store" });
+        if (!res.ok) throw new Error(await res.text());
+        const post = await res.json() as PostDetail;
+        applyLoadedPost(post);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to load post");
+      } finally {
+        setIsLoadingPost(false);
+      }
+    };
+
+    void loadPost();
+  }, [applyLoadedPost, formatTimeInput, postId, searchParams]);
 
   useEffect(() => {
     const loadImageKitConfig = async () => {
@@ -302,11 +407,13 @@ export default function CreatePostPage() {
 
   const saveDraft = useCallback(async () => {
     try {
+      const schedule = buildSchedulePayload();
       const payload = {
         content,
         platforms: selectedPlatforms,
         mediaAssetIds: uploadedMedia.map((media) => media.id),
-        scheduledAt: !isPostNow && scheduledAt ? scheduledAt.toISOString() : null,
+        scheduledAt: schedule.scheduledAt,
+        scheduledEndAt: schedule.scheduledEndAt,
         status: 'draft'
       };
 
@@ -327,10 +434,13 @@ export default function CreatePostPage() {
           setPostId(data.id);
         }
       }
+      toast.success('Draft saved');
     } catch (e) {
+      const message = e instanceof Error ? e.message : 'Auto-save failed';
       console.error('Auto-save failed', e);
+      toast.error(message);
     }
-  }, [content, isPostNow, postId, scheduledAt, selectedPlatforms, uploadedMedia]);
+  }, [buildSchedulePayload, content, postId, selectedPlatforms, uploadedMedia]);
 
   useEffect(() => {
     if (content.length > 0 || selectedPlatforms.length > 0) {
@@ -384,12 +494,14 @@ export default function CreatePostPage() {
     }
 
     try {
+      const schedule = buildSchedulePayload();
       const payload = {
         content,
         platforms: selectedPlatforms,
         mediaAssetIds: uploadedMedia.map((media) => media.id),
-        scheduledAt: !isPostNow && scheduledAt ? scheduledAt.toISOString() : null,
-        status: 'published'
+        scheduledAt: schedule.scheduledAt,
+        scheduledEndAt: schedule.scheduledEndAt,
+        status: schedule.scheduledAt ? 'scheduled' : 'published'
       };
 
       console.log('[CREATE_POST] Publishing with payload:', payload);
@@ -406,23 +518,23 @@ export default function CreatePostPage() {
       console.log('[CREATE_POST] API Response status:', res.status);
 
       if (res.ok) {
-        console.log('[CREATE_POST] Post published successfully');
-        alert('your post is post');
-        toast.success(isPostNow ? 'Post published!' : 'Post scheduled!');
+        console.log('[CREATE_POST] Post saved successfully');
+        toast.success(isPostNow ? 'Post publishing started!' : 'Post scheduled!');
         setContent('');
         setSelectedPlatforms([]);
         setUploadedMedia([]);
         setPostId(null);
+        if (!isPostNow) {
+          router.push('/dashboard/calendar');
+        }
       } else {
         const errText = await res.text();
         console.error('[CREATE_POST] API Error:', errText);
-        alert('err');
         toast.error(`Failed to publish: ${errText}`);
       }
     } catch (error) {
       console.error('[CREATE_POST] Exception:', error);
-      alert('err');
-      toast.error('Error publishing post');
+      toast.error(error instanceof Error ? error.message : 'Error publishing post');
     }
   };
 
@@ -438,6 +550,11 @@ export default function CreatePostPage() {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 h-[calc(100vh-8rem)]">
       <div className="flex flex-col space-y-6 overflow-y-auto pr-2 pb-10">
+        {isLoadingPost && (
+          <div className="rounded-lg border border-cyan-400/20 bg-cyan-400/10 p-3 text-sm text-cyan-100">
+            Loading post for editing...
+          </div>
+        )}
         <div>
           <h3 className="text-sm font-medium text-white mb-3">Select Platforms</h3>
           {accounts.length === 0 ? (
@@ -745,7 +862,7 @@ export default function CreatePostPage() {
           </div>
 
           {!isPostNow && (
-            <div className="flex flex-col space-y-2">
+            <div className="flex flex-col space-y-3">
               <label className="text-sm text-gray-400">Select Date & Time</label>
               <Popover>
                 <PopoverTrigger className="inline-flex h-9 w-full items-center justify-start gap-2 rounded-md border border-white/10 bg-black/50 px-4 py-2 text-left text-sm font-normal text-white hover:bg-white/10">
@@ -757,11 +874,36 @@ export default function CreatePostPage() {
                     mode="single"
                     required={false}
                     selected={scheduledAt}
-                    onSelect={setScheduledAt}
+                    onSelect={(date) => {
+                      if (!date) return setScheduledAt(undefined);
+                      const current = scheduledAt ? new Date(scheduledAt) : new Date();
+                      date.setHours(current.getHours(), current.getMinutes(), 0, 0);
+                      setScheduledAt(date);
+                    }}
                     className="bg-[#13131a] text-white"
                   />
                 </PopoverContent>
               </Popover>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-500">Start time</label>
+                  <Input
+                    type="time"
+                    value={scheduledTime}
+                    onChange={(event) => setScheduledTime(event.target.value)}
+                    className="mt-1 bg-black/50 border-white/10 text-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500">End time</label>
+                  <Input
+                    type="time"
+                    value={scheduledEndTime}
+                    onChange={(event) => setScheduledEndTime(event.target.value)}
+                    className="mt-1 bg-black/50 border-white/10 text-white"
+                  />
+                </div>
+              </div>
             </div>
           )}
         </div>
@@ -815,5 +957,13 @@ export default function CreatePostPage() {
         </Card>
       </div>
     </div>
+  );
+}
+
+export default function CreatePostPage() {
+  return (
+    <Suspense fallback={<div className="text-sm text-gray-400">Loading composer...</div>}>
+      <CreatePostPageContent />
+    </Suspense>
   );
 }

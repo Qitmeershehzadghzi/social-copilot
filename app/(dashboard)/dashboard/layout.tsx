@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { UserButton, useUser } from '@clerk/nextjs'
 import { Button } from '@/components/ui/button'
-import { Calendar, MessageSquare, Settings, Users, FileText, Menu, X, Plus, Zap, LayoutDashboard, LineChart } from 'lucide-react'
+import { Calendar, MessageSquare, Settings, Users, FileText, Menu, X, Plus, Zap, LayoutDashboard, LineChart, Target } from 'lucide-react'
 import { Sheet, SheetClose, SheetContent, SheetTrigger } from '@/components/ui/sheet'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -18,15 +18,19 @@ export default function DashboardLayout({
   const pathname = usePathname();
   const { user } = useUser();
   const [plan, setPlan] = useState<string>('free');
+  const [isMounted, setIsMounted] = useState(false);
 
   useEffect(() => {
     getUserPlan().then(setPlan);
+    const timeoutId = window.setTimeout(() => setIsMounted(true), 0);
+    return () => window.clearTimeout(timeoutId);
   }, []);
 
   const navItems = [
     { icon: <LayoutDashboard className="w-5 h-5" />, label: "Dashboard", route: "/dashboard" },
     { icon: <Calendar className="w-5 h-5" />, label: "Calendar", route: "/dashboard/calendar" },
     { icon: <FileText className="w-5 h-5" />, label: "Content", route: "/dashboard/create-post" },
+    { icon: <Target className="w-5 h-5" />, label: "Strategy", route: "/dashboard/strategy" },
     { icon: <MessageSquare className="w-5 h-5" />, label: "Auto Replies", route: "/dashboard/auto-replies" },
     { icon: <Users className="w-5 h-5" />, label: "Accounts", route: "/dashboard/accounts" },
     { icon: <LineChart className="w-5 h-5" />, label: "Analytics", route: "/dashboard/analytics" },
@@ -37,6 +41,7 @@ export default function DashboardLayout({
     "Dashboard": "Welcome back! Here's what's happening today.",
     "Calendar": "Manage your scheduled posts and events.",
     "Content": "Create and edit your social media posts.",
+    "Strategy": "Generate platform-ready monthly content plans.",
     "Auto Replies": "Configure automated responses for your accounts.",
     "Accounts": "Manage your connected social media profiles.",
     "Analytics": "View insights and performance metrics.",
@@ -102,7 +107,11 @@ export default function DashboardLayout({
           {/* User Profile */}
           <div className="p-4 border-t border-white/10">
             <div className="flex items-center space-x-3">
-              <UserButton />
+              {isMounted ? (
+                <UserButton />
+              ) : (
+                <div className="w-10 h-10 rounded-full bg-white/10" />
+              )}
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-white truncate">
                   {user ? user.fullName : "Loading..."}
@@ -160,7 +169,11 @@ export default function DashboardLayout({
                   </nav>
                   <div className="p-4 border-t border-white/10">
                     <div className="flex items-center space-x-3">
-                      <UserButton />
+                      {isMounted ? (
+                        <UserButton />
+                      ) : (
+                        <div className="w-10 h-10 rounded-full bg-white/10" />
+                      )}
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-white truncate">
                           {user ? user.fullName : "Loading..."}
