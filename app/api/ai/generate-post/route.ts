@@ -52,7 +52,7 @@ export async function POST(req: Request) {
       return new NextResponse('Missing GEMINI_API_KEY', { status: 500 });
     }
 
-    const model = genAI.getGenerativeModel({ model: 'gemini-flash-latest' });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
     const fullPrompt = buildPrompt(prompt, platforms, action);
 
     const result = await model.generateContent(fullPrompt);

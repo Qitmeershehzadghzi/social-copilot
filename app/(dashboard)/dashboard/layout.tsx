@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { UserButton, useUser } from '@clerk/nextjs'
 import { Button } from '@/components/ui/button'
-import { Calendar, MessageSquare, Settings, Users, FileText, Menu, X, Plus, Zap, LayoutDashboard, LineChart, Target } from 'lucide-react'
+import { Calendar, Image as ImageIcon, MessageSquare, Settings, Users, FileText, Menu, X, Plus, Zap, LayoutDashboard, LineChart, Target } from 'lucide-react'
 import { Sheet, SheetClose, SheetContent, SheetTrigger } from '@/components/ui/sheet'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -30,6 +30,7 @@ export default function DashboardLayout({
     { icon: <LayoutDashboard className="w-5 h-5" />, label: "Dashboard", route: "/dashboard" },
     { icon: <Calendar className="w-5 h-5" />, label: "Calendar", route: "/dashboard/calendar" },
     { icon: <FileText className="w-5 h-5" />, label: "Content", route: "/dashboard/create-post" },
+    { icon: <ImageIcon className="w-5 h-5" />, label: "Thumbnail", route: "/dashboard/thumbnail" },
     { icon: <Target className="w-5 h-5" />, label: "Strategy", route: "/dashboard/strategy" },
     { icon: <MessageSquare className="w-5 h-5" />, label: "Auto Replies", route: "/dashboard/auto-replies" },
     { icon: <Users className="w-5 h-5" />, label: "Accounts", route: "/dashboard/accounts" },
@@ -41,6 +42,7 @@ export default function DashboardLayout({
     "Dashboard": "Welcome back! Here's what's happening today.",
     "Calendar": "Manage your scheduled posts and events.",
     "Content": "Create and edit your social media posts.",
+    "Thumbnail": "Generate social thumbnails from prompts.",
     "Strategy": "Generate platform-ready monthly content plans.",
     "Auto Replies": "Configure automated responses for your accounts.",
     "Accounts": "Manage your connected social media profiles.",
