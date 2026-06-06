@@ -17,6 +17,17 @@ type TwitterProfileResponse = {
   data?: {
     name?: string;
     username?: string;
+    profile_image_url?: string;
+  };
+};
+
+type FacebookProfileResponse = {
+  id?: string;
+  name?: string;
+  picture?: {
+    data?: {
+      url?: string;
+    };
   };
 };
 
@@ -111,6 +122,7 @@ export async function GET(
     let refreshToken = '';
     let accountName = `My ${platform.charAt(0).toUpperCase() + platform.slice(1)} Account`;
     let accountHandle = `${platform}_user`;
+    let profileImageUrl: string | null = null;
     let expiresIn = 3600 * 24 * 30; // default 30 days
 
     try {
@@ -194,7 +206,7 @@ export async function GET(
       expiresIn = tokenData.expires_in || (3600 * 24 * 30);
 
       if (platform === 'twitter') {
-        const userRes = await fetch('https://api.twitter.com/2/users/me?user.fields=username,name', {
+        const userRes = await fetch('https://api.twitter.com/2/users/me?user.fields=username,name,profile_image_url', {
           headers: {
             Authorization: `Bearer ${accessToken}`,
           },
@@ -204,6 +216,7 @@ export async function GET(
           const userData = (await userRes.json()) as TwitterProfileResponse;
           accountName = userData.data?.name || accountName;
           accountHandle = userData.data?.username || accountHandle;
+          profileImageUrl = userData.data?.profile_image_url || profileImageUrl;
         } else {
           console.warn('Failed to fetch Twitter account profile:', await userRes.text());
         }
@@ -216,6 +229,7 @@ export async function GET(
           if (userData.items && userData.items.length > 0) {
             accountName = userData.items[0].snippet?.title || accountName;
             accountHandle = userData.items[0].snippet?.customUrl || userData.items[0].id || accountHandle;
+            profileImageUrl = userData.items[0].snippet?.thumbnails?.default?.url || profileImageUrl;
           }
         } else {
           console.warn('Failed to fetch YouTube account profile:', await userRes.text());
@@ -228,17 +242,19 @@ export async function GET(
           const userData = await userRes.json();
           accountName = userData.name || `${userData.given_name} ${userData.family_name}` || accountName;
           accountHandle = userData.email || accountHandle;
+          profileImageUrl = userData.picture || profileImageUrl;
         } else {
           console.warn('Failed to fetch LinkedIn account profile:', await userRes.text());
         }
       } else if (platform === 'facebook' || platform === 'instagram') {
-        const userRes = await fetch('https://graph.facebook.com/me?fields=id,name,username', {
+        const userRes = await fetch('https://graph.facebook.com/v19.0/me?fields=id,name,picture.type(large)', {
           headers: { Authorization: `Bearer ${accessToken}` }
         });
         if (userRes.ok) {
-          const userData = await userRes.json();
+          const userData = await userRes.json() as FacebookProfileResponse;
           accountName = userData.name || accountName;
-          accountHandle = userData.username || userData.id || accountHandle;
+          accountHandle = userData.id || accountHandle;
+          profileImageUrl = userData.picture?.data?.url || profileImageUrl;
         } else {
           console.warn(`Failed to fetch ${platform} account profile:`, await userRes.text());
         }
@@ -250,6 +266,7 @@ export async function GET(
           const userData = await userRes.json();
           accountName = userData.data?.user?.display_name || accountName;
           accountHandle = userData.data?.user?.username || accountHandle;
+          profileImageUrl = userData.data?.user?.avatar_url || profileImageUrl;
         } else {
           console.warn('Failed to fetch TikTok account profile:', await userRes.text());
         }
@@ -286,6 +303,7 @@ export async function GET(
         refreshToken,
         accountName,
         accountHandle,
+        profileImageUrl,
         expiresAt,
         updatedAt: new Date()
       }).where(eq(connectedAccounts.id, existing[0].id));
@@ -297,6 +315,7 @@ export async function GET(
         refreshToken,
         accountName,
         accountHandle,
+        profileImageUrl,
         expiresAt,
       });
     }

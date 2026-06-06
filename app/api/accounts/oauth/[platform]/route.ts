@@ -74,11 +74,29 @@ export async function GET(
         authUrl = `https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=${process.env.LINKEDIN_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}&scope=w_member_social%20r_liteprofile`;
         break;
 
-      case 'facebook':
-      case 'instagram':
-        // Facebook / Instagram OAuth 2.0
-        authUrl = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${process.env.FACEBOOK_APP_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}&scope=pages_manage_posts,pages_read_engagement,instagram_basic,instagram_content_publish`;
+      case 'facebook': {
+        // Basic Facebook Login. Page publishing permissions require separate Meta app review.
+        const facebookParams = new URLSearchParams({
+          client_id: process.env.FACEBOOK_APP_ID || '',
+          redirect_uri: redirectUri,
+          state,
+          scope: 'public_profile',
+        });
+        authUrl = `https://www.facebook.com/v19.0/dialog/oauth?${facebookParams.toString()}`;
         break;
+      }
+
+      case 'instagram': {
+        // Instagram publishing uses Meta permissions and usually needs app review for public users.
+        const instagramParams = new URLSearchParams({
+          client_id: process.env.FACEBOOK_APP_ID || '',
+          redirect_uri: redirectUri,
+          state,
+          scope: 'instagram_basic,instagram_content_publish,pages_show_list,pages_read_engagement',
+        });
+        authUrl = `https://www.facebook.com/v19.0/dialog/oauth?${instagramParams.toString()}`;
+        break;
+      }
 
       case 'youtube':
         // Google / YouTube OAuth 2.0

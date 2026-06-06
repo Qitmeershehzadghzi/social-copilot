@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { AlertCircle, ExternalLink, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useSearchParams, useRouter } from "next/navigation";
@@ -14,6 +15,7 @@ type ConnectedAccount = {
   platform: string;
   accountName: string;
   accountHandle: string | null;
+  profileImageUrl: string | null;
   expiresAt: string | null;
 };
 
@@ -103,6 +105,13 @@ function AccountsPageContent() {
     window.location.assign(`/api/accounts/oauth/${platformId}`);
   };
 
+  const getInitials = (value: string) => {
+    const words = value.trim().split(/\s+/).filter(Boolean);
+    const first = words[0]?.[0] || "A";
+    const second = words.length > 1 ? words[1][0] : "";
+    return `${first}${second}`.toUpperCase();
+  };
+
   if (loading) {
     return <div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-purple-500" /></div>;
   }
@@ -148,8 +157,30 @@ function AccountsPageContent() {
               </CardHeader>
               <CardContent>
                 {isConnected ? (
-                  <div className="space-y-2 mt-2">
-                    <p className="text-sm font-medium">@{connectedAccount.accountHandle || connectedAccount.accountName}</p>
+                  <div className="mt-2 space-y-3">
+                    <div className="flex items-center gap-3">
+                      <Avatar size="lg" className="bg-white/10">
+                        {connectedAccount.profileImageUrl && (
+                          <AvatarImage
+                            src={connectedAccount.profileImageUrl}
+                            alt={connectedAccount.accountName}
+                          />
+                        )}
+                        <AvatarFallback className="bg-white/10 text-white">
+                          {getInitials(connectedAccount.accountName)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-white">
+                          {connectedAccount.accountName}
+                        </p>
+                        {connectedAccount.accountHandle && (
+                          <p className="truncate text-xs text-gray-400">
+                            @{connectedAccount.accountHandle}
+                          </p>
+                        )}
+                      </div>
+                    </div>
                     {showWarning && (
                       <div className="flex items-center text-xs text-orange-400 mt-2 bg-orange-400/10 p-2 rounded border border-orange-400/20">
                         <AlertCircle className="w-4 h-4 mr-1" />

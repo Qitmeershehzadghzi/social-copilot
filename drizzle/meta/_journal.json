@@ -15,6 +15,13 @@
       "when": 1779801018843,
       "tag": "0001_add_scheduled_end_at",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1780776000000,
+      "tag": "0002_add_connected_account_profile_image",
+      "breakpoints": true
     }
   ]
 }

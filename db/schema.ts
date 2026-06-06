@@ -38,6 +38,7 @@ export const connectedAccounts = pgTable('connected_accounts', {
   refreshToken: text('refresh_token'),
   accountName: varchar('account_name', { length: 255 }).notNull(),
   accountHandle: varchar('account_handle', { length: 255 }).notNull(),
+  profileImageUrl: text('profile_image_url'),
   expiresAt: timestamp('expires_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
